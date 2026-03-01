@@ -15,7 +15,7 @@ Area Labeler is a specialized extension designed for Game Masters using Owlbear 
 
 1. Open Owlbear Rodeo.
 2. Navigate to **Profile > Extensions > Add Extension**.
-3. Paste the URL:
+3. Paste the URL: https://mechakeyzilla.github.io/area-labeler/manifest.json
 4. Enable the tool from the Extension bar.
 
 ## Usage
