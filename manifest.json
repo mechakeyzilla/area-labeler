@@ -1,13 +1,12 @@
 {
   "name": "Area Labeler",
   "author": "Realm Referee",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "manifest_version": 1,
-  "base_url": "https://mechakeyzilla.github.io/area-labeler/",
   "action": {
     "title": "Area Labeler",
-    "icon": "icon_manager.svg",
-    "popover": "index.html",
+    "icon": "/area-labeler/icon_manager.svg",
+    "popover": "/area-labeler/index.html",
     "width": 400,
     "height": 200
   }
