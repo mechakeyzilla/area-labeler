@@ -3,6 +3,7 @@
   "author": "Realm Referee",
   "version": "1.0.2",
   "manifest_version": 1,
+  "base_url": "https://mechakeyzilla.github.io/area-labeler/",
   "action": {
     "title": "Area Labeler",
     "icon": "icon_manager.svg",
