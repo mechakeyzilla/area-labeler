@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: system-ui, sans-serif; background: #222; color: white; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 170px; overflow: hidden; position: relative; }
+    .row { display: flex; align-items: center; justify-content: center; width: 100%; gap: 15px; }
+    
+    .label-text { font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+    
+    /* Input & Placeholder styling */
+    input { background: #333; border: 1px solid #555; color: white; padding: 8px; text-align: center; width: 80px; font-size: 18px; border-radius: 4px; outline: none; transition: border-color 0.2s; }
+    input::placeholder { color: #666; font-style: italic; }
+    input:focus-visible { border-color: #888; box-shadow: 0 0 0 2px rgba(255,255,255,0.2); }
+    
+    button { cursor: pointer; background: none; border: none; color: white; transition: transform 0.1s, opacity 0.2s; }
+    button:active { transform: scale(0.9); }
+    button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+    
+    /* Undo Button */
+    #undoBtn { font-size: 20px; width: 24px; }
+    
+    /* Row 3 Layout */
+    .row-3 { justify-content: space-between; }
+    .text-link-btn { font-size: 12px; color: #aaa; text-decoration: underline; width: 70px; text-align: left; }
+    .text-link-btn:hover { color: #fff; }
+    .text-link-btn.locked { color: #ff4444; }
+    .empty-space { width: 70px; } /* Balances the lock button */
+    
+    .done-btn { background: #444; padding: 8px 30px; border-radius: 20px; font-size: 14px; border: 1px solid #666; width: 100px; }
+    .done-btn:hover { background: #555; }
+    
+    /* Toast Notification */
+    .toast { position: absolute; bottom: -40px; left: 50%; transform: translateX(-50%); background: #aa3333; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; white-space: nowrap; transition: bottom 0.3s ease-in-out, opacity 0.3s ease-in-out; opacity: 0; pointer-events: none; }
+    .toast.show { bottom: 5px; opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <div class="row">
+    <label for="labelInput" class="label-text">Area Label</label>
+  </div>
+
+  <div class="row">
+    <div style="width: 24px;"></div> <input type="text" id="labelInput" maxlength="6" placeholder="A1" autocomplete="off" spellcheck="false">
+    <button id="undoBtn" aria-label="Undo last label" title="Undo" disabled>↩️</button>
+  </div>
+
+  <div class="row row-3">
+    <button id="lockTextBtn" class="text-link-btn">Lock All</button>
+    <button class="done-btn" id="doneBtn" aria-label="Finish and close">Done</button>
+    <div class="empty-space"></div>
+  </div>
+
+  <div id="toast" class="toast">Allowed characters: A-Z, 1-999, : _ -</div>
+
+  <script type="module">
+    import OBR from "https://unpkg.com/@owlbear-rodeo/sdk/dist/obr-sdk.js";
+
+    const ID = "com.area.labeler";
+    const input = document.getElementById('labelInput');
+    const lockBtn = document.getElementById('lockTextBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const doneBtn = document.getElementById('doneBtn');
+    const toast = document.getElementById('toast');
+    
+    let isLocked = false;
+    let actionHistory = [];
+    let toastTimeout;
+
+    // --- USER EXPERIENCE & VALIDATION ---
+    input.addEventListener('input', (e) => {
+      const original = e.target.value;
+      const sanitized = original.replace(/[^a-zA-Z0-9\-_:]/g, '');
+      
+      if (original !== sanitized) {
+        // Show Toast if illegal character typed
+        toast.classList.add('show');
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
+      }
+      
+      e.target.value = sanitized;
+      OBR.room.setMetadata({ [`${ID}/lastLabel`]: e.target.value });
+    });
+
+    input.addEventListener('focus', () => input.select());
+
+    function updateUndoButtonState() {
+      undoBtn.disabled = actionHistory.length === 0;
+    }
+
+    // --- INCREMENT LOGIC ---
+    function increment(str) {
+      if (!str) return "A2"; // Default fallback if they left it entirely blank
+      const trailing = str.match(/[-:_]+$/);
+      const suffix = trailing ? trailing[0] : "";
+      const base = trailing ? str.slice(0, -trailing[0].length) : str;
+
+      if (/\d+$/.test(base)) {
+        return base.replace(/\d+$/, (n) => {
+          const next = (parseInt(n) + 1).toString();
+          return next.padStart(n.length, '0');
+        }) + suffix;
+      }
+      if (/[a-zA-Z]$/.test(base)) {
+        const lastChar = base.slice(-1);
+        if (lastChar.toLowerCase() === 'z') {
+          return base + (lastChar === 'Z' ? 'A' : 'a') + suffix;
+        }
+        return base.slice(0, -1) + String.fromCharCode(lastChar.charCodeAt(0) + 1) + suffix;
+      }
+      return base + suffix;
+    }
+
+    // --- OBR INTERACTION ---
+    OBR.onReady(async () => {
+      const saved = await OBR.room.getMetadata();
+      if (saved[`${ID}/lastLabel`]) input.value = saved[`${ID}/lastLabel`];
+
+      OBR.tool.create({
+        id: `${ID}/tool`,
+        icons: [{ icon: "icon.svg", label: "Place Labels" }],
+        onClick: async (context, event) => {
+          const pos = event.pointerPosition;
+          // Use placeholder "A1" if input is completely empty
+          const currentText = input.value || "A1"; 
+
+          const circle = OBR.item.createShape({
+            width: Math.max(currentText.length * 12 + 15, 30),
+            height: 30,
+            shapeType: "CIRCLE",
+            fillColor: "#F5F5DC",
+            strokeColor: "#000000",
+            position: pos,
+          })
+          .setLayer("NOTE")
+          .setMetadata({ [`${ID}/isLabel`]: true })
+          .setVisible(false).build();
+
+          const text = OBR.item.createText({
+            text: { plainText: currentText, richText: "" },
+            position: pos,
+            fontSize: 16,
+            fontWeight: 700,
+          })
+          .setLayer("NOTE")
+          .setMetadata({ [`${ID}/isLabel`]: true })
+          .setVisible(false).build();
+
+          await OBR.scene.items.addItems([circle, text]);
+          await OBR.scene.items.selectItems([circle.id, text.id]);
+
+          actionHistory.push({ ids: [circle.id, text.id], previousLabel: currentText });
+          updateUndoButtonState();
+          
+          const nextLabel = increment(currentText);
+          input.value = nextLabel;
+          OBR.room.setMetadata({ [`${ID}/lastLabel`]: nextLabel });
+        }
+      });
+    });
+
+    // --- UI ACTIONS ---
+    lockBtn.onclick = async () => {
+      isLocked = !isLocked;
+      lockBtn.innerText = isLocked ? "Unlock All" : "Lock All";
+      lockBtn.classList.toggle('locked', isLocked);
+
+      const items = await OBR.scene.items.getItems(item => item.metadata[`${ID}/isLabel`]);
+      await OBR.scene.items.updateItems(items.map(i => i.id), (items) => {
+        for (let i of items) i.locked = isLocked;
+      });
+    };
+
+    undoBtn.onclick = async () => {
+      if (actionHistory.length === 0) return;
+      const lastAction = actionHistory.pop();
+      await OBR.scene.items.deleteItems(lastAction.ids);
+      input.value = lastAction.previousLabel;
+      OBR.room.setMetadata({ [`${ID}/lastLabel`]: lastAction.previousLabel });
+      updateUndoButtonState();
+    };
+
+    doneBtn.onclick = () => OBR.popover.close(ID);
+    window.addEventListener('keydown', (e) => { if (e.key === "Escape") OBR.popover.close(ID); });
+  </script>
+</body>
+</html>
