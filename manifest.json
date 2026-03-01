@@ -1,12 +1,11 @@
 {
   "name": "Area Labeler",
   "author": "Realm Referee",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "manifest_version": 1,
   "action": {
     "title": "Area Labeler",
     "icon": "icon_manager.svg",
-    "id": "com.area.labeler"
     "popover": "index.html",
     "width": 400,
     "height": 200
