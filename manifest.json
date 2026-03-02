@@ -5,8 +5,8 @@
   "manifest_version": 1,
   "action": {
     "title": "Area Labeler",
-    "icon": "icon_manager.svg",
-    "popover": "index.html",
+    "icon": "/area-labeler/icon_manager.svg",
+    "popover": "/area-labeler/index.html",
     "width": 400,
     "height": 200
   }
