@@ -1,11 +1,8 @@
 {
   "name": "Area Labeler",
   "author": "Realm Referee",
-  "version": "1.0.0",
+  "version": "1..00",
   "manifest_version": 1,
-  "background": {
-    "url": "/area-labeler/background.html"
-  },
   "action": {
     "title": "Area Labeler",
     "icon": "/area-labeler/icon_manager.svg",
