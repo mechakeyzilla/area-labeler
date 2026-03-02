@@ -38,7 +38,6 @@
     button { cursor: pointer; background: none; border: none; color: white; transition: transform 0.1s, opacity 0.2s; }
     button:active { transform: scale(0.9); }
     button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
-
     #undoBtn { font-size: 20px; width: 24px; }
 
     .row-3 { justify-content: space-between; }
@@ -57,7 +56,6 @@
     }
     .done-btn:hover { background: #555; }
 
-    /* Scene-not-ready overlay */
     #sceneWarning {
       display: none;
       position: absolute;
@@ -113,26 +111,26 @@
     <div class="empty-space"></div>
   </div>
 
-  <div id="toast" class="toast">Allowed characters: A–Z, 0–9, : _ -</div>
+  <div id="toast" class="toast"></div>
 
   <script type="module">
-    import OBR from "https://unpkg.com/@owlbear-rodeo/sdk/dist/obr-sdk.js";
+    import OBR, { buildLabel } from "https://unpkg.com/@owlbear-rodeo/sdk/dist/obr-sdk.js";
 
-    const ID       = "com.area.labeler";
-    const META_KEY = `${ID}/lastLabel`;
+    const ID        = "com.area.labeler";
+    const META_KEY  = `${ID}/lastLabel`;
 
-    const input      = document.getElementById("labelInput");
-    const lockBtn    = document.getElementById("lockTextBtn");
-    const undoBtn    = document.getElementById("undoBtn");
-    const doneBtn    = document.getElementById("doneBtn");
-    const toast      = document.getElementById("toast");
-    const sceneWarn  = document.getElementById("sceneWarning");
+    const input     = document.getElementById("labelInput");
+    const lockBtn   = document.getElementById("lockTextBtn");
+    const undoBtn   = document.getElementById("undoBtn");
+    const doneBtn   = document.getElementById("doneBtn");
+    const toast     = document.getElementById("toast");
+    const sceneWarn = document.getElementById("sceneWarning");
 
-    let isLocked     = false;
-    let actionHistory = [];   // [{ ids: [...], previousLabel: string }]
+    let isLocked      = false;
+    let actionHistory = [];  // { ids: string[], previousLabel: string }[]
     let toastTimeout;
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     function showToast(msg) {
       toast.textContent = msg;
@@ -147,18 +145,15 @@
 
     function increment(str) {
       if (!str) return "A1";
-
-      // Preserve any trailing separator characters
       const suffixMatch = str.match(/[-:_]+$/);
       const suffix = suffixMatch ? suffixMatch[0] : "";
       const base   = suffix ? str.slice(0, -suffix.length) : str;
 
-      // Increment trailing digits
       if (/\d+$/.test(base)) {
-        return base.replace(/\d+$/, (n) => String(parseInt(n, 10) + 1).padStart(n.length, "0")) + suffix;
+        return base.replace(/\d+$/, (n) =>
+          String(parseInt(n, 10) + 1).padStart(n.length, "0")
+        ) + suffix;
       }
-
-      // Increment trailing letter (Z → append A / z → append a, per the brief)
       if (/[a-zA-Z]$/.test(base)) {
         const last = base.slice(-1);
         if (last.toLowerCase() === "z") {
@@ -166,62 +161,47 @@
         }
         return base.slice(0, -1) + String.fromCharCode(last.charCodeAt(0) + 1) + suffix;
       }
-
-      return base + suffix; // fallback
+      return base + suffix;
     }
 
     function persistLabel(value) {
       OBR.room.setMetadata({ [META_KEY]: value }).catch(console.error);
     }
 
-    // ── Input validation ─────────────────────────────────────────────────────
+    function setSceneReady(ready) {
+      sceneWarn.classList.toggle("visible", !ready);
+      if (!ready) {
+        isLocked = false;
+        lockBtn.textContent = "Lock All";
+        lockBtn.classList.remove("locked");
+        actionHistory = [];
+        updateUndoState();
+      }
+    }
+
+    // ── Input validation ──────────────────────────────────────────────────────
 
     input.addEventListener("input", (e) => {
       const original  = e.target.value;
       const sanitized = original.replace(/[^a-zA-Z0-9\-_:]/g, "");
-      if (original !== sanitized) {
-        showToast("Allowed characters: A–Z, 0–9, : _ -");
-      }
+      if (original !== sanitized) showToast("Allowed characters: A–Z, 0–9, : _ -");
       e.target.value = sanitized;
       persistLabel(sanitized);
     });
 
     input.addEventListener("focus", () => input.select());
 
-    // ── Scene readiness ───────────────────────────────────────────────────────
-
-    async function checkScene() {
-      try {
-        const ready = await OBR.scene.isReady();
-        if (ready) {
-          sceneWarn.classList.remove("visible");
-        } else {
-          sceneWarn.classList.add("visible");
-        }
-      } catch {
-        sceneWarn.classList.add("visible");
-      }
-    }
-
-    // ── Lock All / Unlock All ─────────────────────────────────────────────────
+    // ── Lock / Unlock All ─────────────────────────────────────────────────────
 
     lockBtn.addEventListener("click", async () => {
       try {
-        const ready = await OBR.scene.isReady();
-        if (!ready) return;
-
+        if (!await OBR.scene.isReady()) return;
         isLocked = !isLocked;
         lockBtn.textContent = isLocked ? "Unlock All" : "Lock All";
         lockBtn.classList.toggle("locked", isLocked);
-
-        // updateItems accepts a filter function and an Immer-style updater
         await OBR.scene.items.updateItems(
           (item) => Boolean(item.metadata[`${ID}/isLabel`]),
-          (items) => {
-            for (const item of items) {
-              item.locked = isLocked;
-            }
-          }
+          (items) => { for (const item of items) item.locked = isLocked; }
         );
       } catch (err) {
         console.error("Lock toggle failed:", err);
@@ -240,7 +220,6 @@
         persistLabel(last.previousLabel);
       } catch (err) {
         console.error("Undo failed:", err);
-        // Re-push so the state isn't silently lost
         actionHistory.push(last);
         showToast("Undo failed — try again.");
       }
@@ -249,65 +228,87 @@
 
     // ── Done / Escape ─────────────────────────────────────────────────────────
 
-    doneBtn.addEventListener("click", () => {
-      OBR.action.close().catch(console.error);
-    });
-
+    doneBtn.addEventListener("click",  () => OBR.action.close().catch(console.error));
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape") OBR.action.close().catch(console.error);
     });
 
-    // ── OBR ready ─────────────────────────────────────────────────────────────
-    // The popover is responsible for its own UI state only.
-    // Item placement is handled by background.html which registers the tool.
-    // The popover communicates the current label via room metadata.
-    // It also receives placed-item IDs back via room metadata for undo.
+    // ── OBR init ──────────────────────────────────────────────────────────────
 
     OBR.onReady(async () => {
-      // Restore persisted label
+
+      // 1. Restore persisted label
       try {
         const saved = await OBR.room.getMetadata();
-        if (typeof saved[META_KEY] === "string") {
-          input.value = saved[META_KEY];
-        }
+        if (typeof saved[META_KEY] === "string") input.value = saved[META_KEY];
       } catch { /* non-fatal */ }
 
-      // Check & subscribe to scene readiness
-      await checkScene();
-      OBR.scene.onReadyChange(async (ready) => {
-        if (ready) {
-          sceneWarn.classList.remove("visible");
-          // Reset lock button state to match actual item state
-          isLocked = false;
-          lockBtn.textContent = "Lock All";
-          lockBtn.classList.remove("locked");
-          // Rebuild undo history is not possible across sessions — clear it
-          actionHistory = [];
-          updateUndoState();
-        } else {
-          sceneWarn.classList.add("visible");
-        }
-      });
+      // 2. Scene readiness
+      try { setSceneReady(await OBR.scene.isReady()); }
+      catch { setSceneReady(false); }
+      OBR.scene.onReadyChange(setSceneReady);
 
-      // Listen for undo payload written by the background tool click handler
-      // Background writes: { [`${ID}/lastPlaced`]: { ids, previousLabel, nextLabel } }
-      OBR.room.onMetadataChange((meta) => {
-        const placed = meta[`${ID}/lastPlaced`];
-        if (placed && placed.ids && placed.previousLabel !== undefined) {
-          // Only accept if this is newer than what we already know
-          const alreadyTracked = actionHistory.some(
-            (h) => h.ids[0] === placed.ids[0]
-          );
-          if (!alreadyTracked) {
-            actionHistory.push({ ids: placed.ids, previousLabel: placed.previousLabel });
-            updateUndoState();
-          }
-          // Also sync the input to whatever the background incremented to
-          if (typeof placed.nextLabel === "string") {
-            input.value = placed.nextLabel;
-          }
-        }
-      });
+      // 3. Register the toolbar tool.
+      //    Wrapped in try/catch: if the popover is closed and reopened, OBR
+      //    keeps the registration alive and will throw on a duplicate create.
+      //    We treat that throw as a no-op — the existing registration is fine.
+      try {
+        await OBR.tool.create({
+          id: `${ID}/tool`,
+          icons: [{ icon: "/area-labeler/icon.svg", label: "Area Labeler" }],
+        });
+      } catch { /* already registered */ }
+
+      // 4. Register the click-to-place mode. Same duplicate guard.
+      //    Because the popover and the tool mode share the same JS context,
+      //    onToolClick can read `input.value` directly — no metadata round-trip.
+      try {
+        await OBR.tool.createMode({
+          id: `${ID}/mode`,
+          icons: [{
+            icon: "/area-labeler/icon.svg",
+            label: "Place Label",
+            filter: { activeTools: [`${ID}/tool`] },
+          }],
+
+          async onToolClick(_context, event) {
+            try {
+              if (!await OBR.scene.isReady()) return;
+
+              const currentLabel = input.value || "A1";
+              const pos = event.pointerPosition;
+
+              const label = buildLabel()
+                .plainText(currentLabel)
+                .position(pos)
+                .layer("NOTE")
+                .fontSize(16)
+                .fontWeight(700)
+                .fillColor("#F5F5DC")
+                .strokeColor("#000000")
+                .strokeWidth(1)
+                .textAlign("CENTER")
+                .textAlignVertical("MIDDLE")
+                .metadata({ [`${ID}/isLabel`]: true })
+                .build();
+
+              await OBR.scene.items.addItems([label]);
+              await OBR.scene.items.selectItems([label.id]);
+
+              actionHistory.push({ ids: [label.id], previousLabel: currentLabel });
+              updateUndoState();
+
+              const next = increment(currentLabel);
+              input.value = next;
+              persistLabel(next);
+
+            } catch (err) {
+              console.error("Area Labeler: place failed:", err);
+              showToast("Failed to place label.");
+            }
+          },
+        });
+      } catch { /* already registered */ }
     });
   </script>
 </body>
