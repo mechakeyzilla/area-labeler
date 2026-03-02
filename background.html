@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"></head>
+<body>
+<!--
+  background.html
+  ───────────────
+  This page is loaded once by OBR when the extension is installed and stays
+  alive for the session. It owns tool registration so that the tool is never
+  registered more than once, regardless of how many times the popover is
+  opened or closed.
+-->
+<script type="module">
+  import OBR, { buildLabel } from "https://unpkg.com/@owlbear-rodeo/sdk/dist/obr-sdk.js";
+
+  const ID        = "com.area.labeler";
+  const META_KEY  = `${ID}/lastLabel`;
+  const PLACED_KEY = `${ID}/lastPlaced`;
+
+  // ── Increment helper (mirrors popover copy) ───────────────────────────────
+  function increment(str) {
+    if (!str) return "A1";
+    const suffixMatch = str.match(/[-:_]+$/);
+    const suffix = suffixMatch ? suffixMatch[0] : "";
+    const base   = suffix ? str.slice(0, -suffix.length) : str;
+
+    if (/\d+$/.test(base)) {
+      return base.replace(/\d+$/, (n) => String(parseInt(n, 10) + 1).padStart(n.length, "0")) + suffix;
+    }
+    if (/[a-zA-Z]$/.test(base)) {
+      const last = base.slice(-1);
+      if (last.toLowerCase() === "z") {
+        return base + (last === "Z" ? "A" : "a") + suffix;
+      }
+      return base.slice(0, -1) + String.fromCharCode(last.charCodeAt(0) + 1) + suffix;
+    }
+    return base + suffix;
+  }
+
+  OBR.onReady(() => {
+    // ── Register the toolbar tool ───────────────────────────────────────────
+    // OBR.tool.create only registers the tool button in the toolbar.
+    // Actual click interaction is handled by the tool mode below.
+    OBR.tool.create({
+      id: `${ID}/tool`,
+      icons: [{
+        icon: "/area-labeler/icon.svg",
+        label: "Area Labeler",
+      }],
+    });
+
+    // ── Register the click-to-place tool mode ───────────────────────────────
+    OBR.tool.createMode({
+      id: `${ID}/mode`,
+      icons: [{
+        icon: "/area-labeler/icon.svg",
+        label: "Place Label",
+        filter: {
+          activeTools: [`${ID}/tool`],
+        },
+      }],
+
+      async onToolClick(_context, event) {
+        // Guard: only act when a scene is actually ready
+        const ready = await OBR.scene.isReady();
+        if (!ready) return;
+
+        // Read the current label from room metadata (set by the popover)
+        let currentLabel = "A1";
+        try {
+          const meta = await OBR.room.getMetadata();
+          if (typeof meta[META_KEY] === "string" && meta[META_KEY].length > 0) {
+            currentLabel = meta[META_KEY];
+          }
+        } catch { /* use default */ }
+
+        const pos = event.pointerPosition;
+
+        // buildLabel() creates a single text-with-background item — no need
+        // for a separate shape + text pair, and no circle/rectangle confusion.
+        const label = buildLabel()
+          .plainText(currentLabel)
+          .position(pos)
+          .layer("NOTE")
+          .fontSize(16)
+          .fontWeight(700)
+          .fillColor("#F5F5DC")
+          .strokeColor("#000000")
+          .strokeWidth(1)
+          .textAlign("CENTER")
+          .textAlignVertical("MIDDLE")
+          .metadata({ [`${ID}/isLabel`]: true })
+          .build();
+
+        try {
+          await OBR.scene.items.addItems([label]);
+          await OBR.scene.items.selectItems([label.id]);
+
+          const nextLabel = increment(currentLabel);
+
+          // Write back to room metadata:
+          //  1. nextLabel  → popover reads this to advance its input
+          //  2. lastPlaced → popover reads this to populate undo history
+          await OBR.room.setMetadata({
+            [META_KEY]: nextLabel,
+            [PLACED_KEY]: {
+              ids: [label.id],
+              previousLabel: currentLabel,
+              nextLabel,
+            },
+          });
+        } catch (err) {
+          console.error("Area Labeler: failed to place label", err);
+        }
+      },
+    });
+  });
+</script>
+</body>
+</html>
