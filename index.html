@@ -3,46 +3,107 @@
 <head>
   <meta charset="UTF-8">
   <style>
-    body { font-family: system-ui, sans-serif; background: #222; color: white; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 170px; overflow: hidden; position: relative; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #222;
+      color: white;
+      margin: 0;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      height: 170px;
+      overflow: hidden;
+      position: relative;
+    }
     .row { display: flex; align-items: center; justify-content: center; width: 100%; gap: 15px; }
-    
     .label-text { font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
-    
-    /* Input & Placeholder styling */
-    input { background: #333; border: 1px solid #555; color: white; padding: 8px; text-align: center; width: 80px; font-size: 18px; border-radius: 4px; outline: none; transition: border-color 0.2s; }
+
+    input {
+      background: #333;
+      border: 1px solid #555;
+      color: white;
+      padding: 8px;
+      text-align: center;
+      width: 80px;
+      font-size: 18px;
+      border-radius: 4px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
     input::placeholder { color: #666; font-style: italic; }
     input:focus-visible { border-color: #888; box-shadow: 0 0 0 2px rgba(255,255,255,0.2); }
-    
+
     button { cursor: pointer; background: none; border: none; color: white; transition: transform 0.1s, opacity 0.2s; }
     button:active { transform: scale(0.9); }
     button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
-    
-    /* Undo Button */
+
     #undoBtn { font-size: 20px; width: 24px; }
-    
-    /* Row 3 Layout */
+
     .row-3 { justify-content: space-between; }
     .text-link-btn { font-size: 12px; color: #aaa; text-decoration: underline; width: 70px; text-align: left; }
     .text-link-btn:hover { color: #fff; }
     .text-link-btn.locked { color: #ff4444; }
-    .empty-space { width: 70px; } /* Balances the lock button */
-    
-    .done-btn { background: #444; padding: 8px 30px; border-radius: 20px; font-size: 14px; border: 1px solid #666; width: 100px; }
+    .empty-space { width: 70px; }
+
+    .done-btn {
+      background: #444;
+      padding: 8px 30px;
+      border-radius: 20px;
+      font-size: 14px;
+      border: 1px solid #666;
+      width: 100px;
+    }
     .done-btn:hover { background: #555; }
-    
-    /* Toast Notification */
-    .toast { position: absolute; bottom: -40px; left: 50%; transform: translateX(-50%); background: #aa3333; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; white-space: nowrap; transition: bottom 0.3s ease-in-out, opacity 0.3s ease-in-out; opacity: 0; pointer-events: none; }
+
+    /* Scene-not-ready overlay */
+    #sceneWarning {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #ffa;
+      text-align: center;
+      padding: 10px;
+      z-index: 10;
+    }
+    #sceneWarning.visible { display: flex; }
+
+    .toast {
+      position: absolute;
+      bottom: -40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #aa3333;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      white-space: nowrap;
+      transition: bottom 0.3s ease-in-out, opacity 0.3s ease-in-out;
+      opacity: 0;
+      pointer-events: none;
+    }
     .toast.show { bottom: 5px; opacity: 1; }
   </style>
 </head>
 <body>
+
+  <div id="sceneWarning" class="visible">
+    Open a scene to use<br>the Area Labeler tool.
+  </div>
 
   <div class="row">
     <label for="labelInput" class="label-text">Area Label</label>
   </div>
 
   <div class="row">
-    <div style="width: 24px;"></div> <input type="text" id="labelInput" maxlength="6" placeholder="A1" autocomplete="off" spellcheck="false">
+    <div style="width: 24px;"></div>
+    <input type="text" id="labelInput" maxlength="6" placeholder="A1" autocomplete="off" spellcheck="false">
     <button id="undoBtn" aria-label="Undo last label" title="Undo" disabled>↩️</button>
   </div>
 
@@ -52,141 +113,202 @@
     <div class="empty-space"></div>
   </div>
 
-  <div id="toast" class="toast">Allowed characters: A-Z, 1-999, : _ -</div>
+  <div id="toast" class="toast">Allowed characters: A–Z, 0–9, : _ -</div>
 
   <script type="module">
     import OBR from "https://unpkg.com/@owlbear-rodeo/sdk/dist/obr-sdk.js";
 
-    const ID = "com.area.labeler";
-    const input = document.getElementById('labelInput');
-    const lockBtn = document.getElementById('lockTextBtn');
-    const undoBtn = document.getElementById('undoBtn');
-    const doneBtn = document.getElementById('doneBtn');
-    const toast = document.getElementById('toast');
-    
-    let isLocked = false;
-    let actionHistory = [];
+    const ID       = "com.area.labeler";
+    const META_KEY = `${ID}/lastLabel`;
+
+    const input      = document.getElementById("labelInput");
+    const lockBtn    = document.getElementById("lockTextBtn");
+    const undoBtn    = document.getElementById("undoBtn");
+    const doneBtn    = document.getElementById("doneBtn");
+    const toast      = document.getElementById("toast");
+    const sceneWarn  = document.getElementById("sceneWarning");
+
+    let isLocked     = false;
+    let actionHistory = [];   // [{ ids: [...], previousLabel: string }]
     let toastTimeout;
 
-    // --- USER EXPERIENCE & VALIDATION ---
-    input.addEventListener('input', (e) => {
-      const original = e.target.value;
-      const sanitized = original.replace(/[^a-zA-Z0-9\-_:]/g, '');
-      
-      if (original !== sanitized) {
-        // Show Toast if illegal character typed
-        toast.classList.add('show');
-        clearTimeout(toastTimeout);
-        toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
-      }
-      
-      e.target.value = sanitized;
-      OBR.room.setMetadata({ [`${ID}/lastLabel`]: e.target.value });
-    });
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
-    input.addEventListener('focus', () => input.select());
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add("show");
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toast.classList.remove("show"), 3000);
+    }
 
-    function updateUndoButtonState() {
+    function updateUndoState() {
       undoBtn.disabled = actionHistory.length === 0;
     }
 
-    // --- INCREMENT LOGIC ---
     function increment(str) {
-      if (!str) return "A2"; // Default fallback if they left it entirely blank
-      const trailing = str.match(/[-:_]+$/);
-      const suffix = trailing ? trailing[0] : "";
-      const base = trailing ? str.slice(0, -trailing[0].length) : str;
+      if (!str) return "A1";
 
+      // Preserve any trailing separator characters
+      const suffixMatch = str.match(/[-:_]+$/);
+      const suffix = suffixMatch ? suffixMatch[0] : "";
+      const base   = suffix ? str.slice(0, -suffix.length) : str;
+
+      // Increment trailing digits
       if (/\d+$/.test(base)) {
-        return base.replace(/\d+$/, (n) => {
-          const next = (parseInt(n) + 1).toString();
-          return next.padStart(n.length, '0');
-        }) + suffix;
+        return base.replace(/\d+$/, (n) => String(parseInt(n, 10) + 1).padStart(n.length, "0")) + suffix;
       }
+
+      // Increment trailing letter (Z → append A / z → append a, per the brief)
       if (/[a-zA-Z]$/.test(base)) {
-        const lastChar = base.slice(-1);
-        if (lastChar.toLowerCase() === 'z') {
-          return base + (lastChar === 'Z' ? 'A' : 'a') + suffix;
+        const last = base.slice(-1);
+        if (last.toLowerCase() === "z") {
+          return base + (last === "Z" ? "A" : "a") + suffix;
         }
-        return base.slice(0, -1) + String.fromCharCode(lastChar.charCodeAt(0) + 1) + suffix;
+        return base.slice(0, -1) + String.fromCharCode(last.charCodeAt(0) + 1) + suffix;
       }
-      return base + suffix;
+
+      return base + suffix; // fallback
     }
 
-    // --- OBR INTERACTION ---
+    function persistLabel(value) {
+      OBR.room.setMetadata({ [META_KEY]: value }).catch(console.error);
+    }
+
+    // ── Input validation ─────────────────────────────────────────────────────
+
+    input.addEventListener("input", (e) => {
+      const original  = e.target.value;
+      const sanitized = original.replace(/[^a-zA-Z0-9\-_:]/g, "");
+      if (original !== sanitized) {
+        showToast("Allowed characters: A–Z, 0–9, : _ -");
+      }
+      e.target.value = sanitized;
+      persistLabel(sanitized);
+    });
+
+    input.addEventListener("focus", () => input.select());
+
+    // ── Scene readiness ───────────────────────────────────────────────────────
+
+    async function checkScene() {
+      try {
+        const ready = await OBR.scene.isReady();
+        if (ready) {
+          sceneWarn.classList.remove("visible");
+        } else {
+          sceneWarn.classList.add("visible");
+        }
+      } catch {
+        sceneWarn.classList.add("visible");
+      }
+    }
+
+    // ── Lock All / Unlock All ─────────────────────────────────────────────────
+
+    lockBtn.addEventListener("click", async () => {
+      try {
+        const ready = await OBR.scene.isReady();
+        if (!ready) return;
+
+        isLocked = !isLocked;
+        lockBtn.textContent = isLocked ? "Unlock All" : "Lock All";
+        lockBtn.classList.toggle("locked", isLocked);
+
+        // updateItems accepts a filter function and an Immer-style updater
+        await OBR.scene.items.updateItems(
+          (item) => Boolean(item.metadata[`${ID}/isLabel`]),
+          (items) => {
+            for (const item of items) {
+              item.locked = isLocked;
+            }
+          }
+        );
+      } catch (err) {
+        console.error("Lock toggle failed:", err);
+        showToast("Failed to toggle lock.");
+      }
+    });
+
+    // ── Undo ──────────────────────────────────────────────────────────────────
+
+    undoBtn.addEventListener("click", async () => {
+      if (actionHistory.length === 0) return;
+      const last = actionHistory.pop();
+      try {
+        await OBR.scene.items.deleteItems(last.ids);
+        input.value = last.previousLabel;
+        persistLabel(last.previousLabel);
+      } catch (err) {
+        console.error("Undo failed:", err);
+        // Re-push so the state isn't silently lost
+        actionHistory.push(last);
+        showToast("Undo failed — try again.");
+      }
+      updateUndoState();
+    });
+
+    // ── Done / Escape ─────────────────────────────────────────────────────────
+
+    doneBtn.addEventListener("click", () => {
+      OBR.action.close().catch(console.error);
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") OBR.action.close().catch(console.error);
+    });
+
+    // ── OBR ready ─────────────────────────────────────────────────────────────
+    // The popover is responsible for its own UI state only.
+    // Item placement is handled by background.html which registers the tool.
+    // The popover communicates the current label via room metadata.
+    // It also receives placed-item IDs back via room metadata for undo.
+
     OBR.onReady(async () => {
-      const saved = await OBR.room.getMetadata();
-      if (saved[`${ID}/lastLabel`]) input.value = saved[`${ID}/lastLabel`];
+      // Restore persisted label
+      try {
+        const saved = await OBR.room.getMetadata();
+        if (typeof saved[META_KEY] === "string") {
+          input.value = saved[META_KEY];
+        }
+      } catch { /* non-fatal */ }
 
-      OBR.tool.create({
-        id: `${ID}/tool`,
-        icons: [{
-          icon: "/area-labeler/icon.svg",
-          label: "Area Labeler"
-        }],
-        onClick: async (context, event) => {
-          const pos = event.pointerPosition;
-          // Use placeholder "A1" if input is completely empty
-          const currentText = input.value || "A1"; 
+      // Check & subscribe to scene readiness
+      await checkScene();
+      OBR.scene.onReadyChange(async (ready) => {
+        if (ready) {
+          sceneWarn.classList.remove("visible");
+          // Reset lock button state to match actual item state
+          isLocked = false;
+          lockBtn.textContent = "Lock All";
+          lockBtn.classList.remove("locked");
+          // Rebuild undo history is not possible across sessions — clear it
+          actionHistory = [];
+          updateUndoState();
+        } else {
+          sceneWarn.classList.add("visible");
+        }
+      });
 
-          const circle = OBR.item.createShape({
-            width: Math.max(currentText.length * 12 + 15, 30),
-            height: 30,
-            shapeType: "CIRCLE",
-            fillColor: "#F5F5DC",
-            strokeColor: "#000000",
-            position: pos,
-          })
-          .setLayer("NOTE")
-          .setMetadata({ [`${ID}/isLabel`]: true })
-          .setVisible(false).build();
-
-          const text = OBR.item.createText({
-            text: { plainText: currentText, richText: "" },
-            position: pos,
-            fontSize: 16,
-            fontWeight: 700,
-          })
-          .setLayer("NOTE")
-          .setMetadata({ [`${ID}/isLabel`]: true })
-          .setVisible(false).build();
-
-          await OBR.scene.items.addItems([circle, text]);
-          await OBR.scene.items.selectItems([circle.id, text.id]);
-
-          actionHistory.push({ ids: [circle.id, text.id], previousLabel: currentText });
-          updateUndoButtonState();
-          
-          const nextLabel = increment(currentText);
-          input.value = nextLabel;
-          OBR.room.setMetadata({ [`${ID}/lastLabel`]: nextLabel });
+      // Listen for undo payload written by the background tool click handler
+      // Background writes: { [`${ID}/lastPlaced`]: { ids, previousLabel, nextLabel } }
+      OBR.room.onMetadataChange((meta) => {
+        const placed = meta[`${ID}/lastPlaced`];
+        if (placed && placed.ids && placed.previousLabel !== undefined) {
+          // Only accept if this is newer than what we already know
+          const alreadyTracked = actionHistory.some(
+            (h) => h.ids[0] === placed.ids[0]
+          );
+          if (!alreadyTracked) {
+            actionHistory.push({ ids: placed.ids, previousLabel: placed.previousLabel });
+            updateUndoState();
+          }
+          // Also sync the input to whatever the background incremented to
+          if (typeof placed.nextLabel === "string") {
+            input.value = placed.nextLabel;
+          }
         }
       });
     });
-
-    // --- UI ACTIONS ---
-    lockBtn.onclick = async () => {
-      isLocked = !isLocked;
-      lockBtn.innerText = isLocked ? "Unlock All" : "Lock All";
-      lockBtn.classList.toggle('locked', isLocked);
-
-      const items = await OBR.scene.items.getItems(item => item.metadata[`${ID}/isLabel`]);
-      await OBR.scene.items.updateItems(items.map(i => i.id), (items) => {
-        for (let i of items) i.locked = isLocked;
-      });
-    };
-
-    undoBtn.onclick = async () => {
-      if (actionHistory.length === 0) return;
-      const lastAction = actionHistory.pop();
-      await OBR.scene.items.deleteItems(lastAction.ids);
-      input.value = lastAction.previousLabel;
-      OBR.room.setMetadata({ [`${ID}/lastLabel`]: lastAction.previousLabel });
-      updateUndoButtonState();
-    };
-
-    doneBtn.onclick = () => OBR.popover.close(ID);
-    window.addEventListener('keydown', (e) => { if (e.key === "Escape") OBR.popover.close(ID); });
   </script>
 </body>
 </html>
